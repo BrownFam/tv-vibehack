@@ -191,10 +191,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         updateWifiLabel();
         handler.postDelayed(minuteTick, MINUTE_MS);
 
-        // Return to the tile we left from, or the first one.
+        // reload() rebinds holders in place. A still-focused card can now be a different package.
         grid.post(() -> {
             View focused = getCurrentFocus();
-            if (focused != null && grid.findContainingViewHolder(focused) != null) return;
+            if (focused != null && focused.getId() != R.id.card) return;
             focusLast();
         });
     }
