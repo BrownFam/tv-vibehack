@@ -2,8 +2,10 @@ package com.gathin.tvhome;
 
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Color;
 import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
@@ -16,9 +18,11 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -43,7 +47,11 @@ import androidx.recyclerview.widget.RecyclerView;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * tvOS style home: black, a pinned dock row, an app grid, and one glass highlight that springs between tiles.
@@ -53,8 +61,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     /** Tiles per row and dock slots (res/values/config.xml, columns). Set in onCreate. */
     static int COLUMNS = 4;
     private static final long MINUTE_MS = 60_000L;
+    private static final long REPLACE_WINDOW_MS = 30_000L;
     private String liveTvPkg;
 
+    private PinList pinList;
     private AppAdapter adapter;
     private RecyclerView grid;
     private FrameLayout root;
@@ -70,6 +80,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private float glassTargetX, glassTargetY;
     private boolean glassShown;
     private int lastFocused = 0;
+    private String lastPkg = "";
+    private boolean moving;
+    private String movingPkg;
+    private List<String> moveBackup;
+    private PopupWindow appMenu;
+    private boolean menuChose;
+    private final Map<String, Long> replacing = new HashMap<>();
     private float density;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -110,8 +127,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         grid.addItemDecoration(new DockDecoration(COLUMNS, density));
         grid.setLayoutAnimation(new LayoutAnimationController(
                 AnimationUtils.loadAnimation(this, R.anim.tile_enter), 0.06f));
-        adapter = new AppAdapter(this, this, COLUMNS);
+        pinList = new PinList(this);
+        adapter = new AppAdapter(this, this, pinList, COLUMNS);
         grid.setAdapter(adapter);
+        registerPackageReceiver();
 
         // tvOS layout: push the dock row to the bottom of the screen; the grid hides below until you press Down.
         grid.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
@@ -174,17 +193,17 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         heroShown = false;
         heroName.setAlpha(0f);
         ambient.setAlpha(0f);
-        adapter.reload();
+        String keep = focusTarget();
+        adapter.reload(activeReplacements());
         grid.scheduleLayoutAnimation();
         updateGreeting();
         updateWifiLabel();
         handler.postDelayed(minuteTick, MINUTE_MS);
 
-        // Return to the tile we left from, or the first one.
         grid.post(() -> {
             View focused = getCurrentFocus();
-            if (focused != null && grid.findContainingViewHolder(focused) != null) return;
-            focusTile(lastFocused);
+            if (!moving && focused != null && focused.getId() != R.id.card) return;
+            focusPackage(keep);
         });
     }
 
@@ -195,7 +214,17 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     }
 
     @Override
+    protected void onDestroy() {
+        unregisterPackageReceiver();
+        super.onDestroy();
+    }
+
+    @Override
     public void onBackPressed() {
+        if (moving) {
+            endMove(false);
+            return;
+        }
         // Home screen: Back goes nowhere.
     }
 
@@ -204,6 +233,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     public void onTileFocused(int position, View card) {
         lastFocused = position;
+        lastPkg = adapter.pkgAt(position);
         // Tile rect in root coordinates, using layout positions (ignores the scale animation).
         Rect r = new Rect(0, 0, card.getWidth(), card.getHeight());
         root.offsetDescendantRectToMyCoords(card, r);
@@ -339,6 +369,253 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             }
         });
         grid.smoothScrollToPosition(pos);
+    }
+
+    private String focusTarget() {
+        return moving && movingPkg != null ? movingPkg : lastPkg;
+    }
+
+    private void focusPackage(String pkg) {
+        int pos = adapter.indexOfPkg(pkg);
+        focusTile(pos >= 0 ? pos : lastFocused);
+    }
+
+    private void reloadGrid(boolean animate) {
+        String keep = focusTarget();
+        adapter.reload(activeReplacements());
+        if (animate) grid.scheduleLayoutAnimation();
+        grid.post(() -> focusPackage(keep));
+    }
+
+    @Override
+    public void onTileClick(AppAdapter.Entry entry) {
+        if (moving) {
+            endMove(true);
+            return;
+        }
+        launch(entry);
+    }
+
+    @Override
+    public void onTileLongPress(AppAdapter.Entry entry, View card) {
+        if (moving) return;
+        lastPkg = entry.pkg;
+        showAppMenu(entry);
+    }
+
+    private void launch(AppAdapter.Entry e) {
+        Intent i = new Intent(Intent.ACTION_MAIN)
+                .addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
+                .setComponent(e.component)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+        try {
+            startActivity(i);
+        } catch (Exception ex) {
+            Toast.makeText(this, getString(R.string.cant_open, e.label), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private enum MenuAction {
+        PIN_TO_TOP, UNPIN, MOVE, UNINSTALL, APP_INFO
+    }
+
+    private void showAppMenu(AppAdapter.Entry entry) {
+        dismissAppMenu();
+        menuChose = false;
+        View panel = getLayoutInflater().inflate(R.layout.popup_inputs, root, false);
+        LinearLayout rows = panel.findViewById(R.id.rows);
+        int width = (int) (280 * density);
+        appMenu = new PopupWindow(panel, width, ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        appMenu.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        appMenu.setOutsideTouchable(true);
+        appMenu.setAnimationStyle(0);
+        appMenu.setElevation(0f);
+        String origin = entry.pkg;
+        appMenu.setOnDismissListener(() -> {
+            appMenu = null;
+            if (!menuChose) grid.post(() -> focusPackage(origin));
+            menuChose = false;
+        });
+
+        for (MenuAction action : actionsFor(entry)) {
+            addMenuRow(rows, titleFor(action), () -> perform(action, entry));
+        }
+
+        panel.setAlpha(0f);
+        panel.setPivotY(0f);
+        panel.setScaleY(0.92f);
+        appMenu.showAtLocation(root, Gravity.CENTER, 0, 0);
+        panel.animate().alpha(1f).scaleY(1f).setDuration(220)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f)).start();
+        if (rows.getChildCount() > 0) rows.getChildAt(0).requestFocus();
+    }
+
+    private List<MenuAction> actionsFor(AppAdapter.Entry entry) {
+        ArrayList<MenuAction> actions = new ArrayList<>();
+        int pinAt = pinList.indexOf(entry.pkg);
+        if (pinAt != 0) actions.add(MenuAction.PIN_TO_TOP);
+        if (pinAt >= 0) actions.add(MenuAction.UNPIN);
+        if (pinAt >= 0 && canMove(entry.pkg)) actions.add(MenuAction.MOVE);
+        if (!entry.system) actions.add(MenuAction.UNINSTALL);
+        actions.add(MenuAction.APP_INFO);
+        return actions;
+    }
+
+    private boolean canMove(String pkg) {
+        for (String other : adapter.packages()) {
+            if (!pkg.equals(other) && pinList.contains(other)) return true;
+        }
+        return false;
+    }
+
+    private int titleFor(MenuAction action) {
+        return switch (action) {
+            case PIN_TO_TOP -> R.string.pin_to_top;
+            case UNPIN -> R.string.unpin;
+            case MOVE -> R.string.move;
+            case UNINSTALL -> R.string.uninstall;
+            case APP_INFO -> R.string.app_info;
+        };
+    }
+
+    private void perform(MenuAction action, AppAdapter.Entry entry) {
+        switch (action) {
+            case PIN_TO_TOP -> {
+                pinList.pinToTop(entry.pkg);
+                lastPkg = entry.pkg;
+                reloadGrid(false);
+            }
+            case UNPIN -> {
+                pinList.unpin(entry.pkg);
+                lastPkg = entry.pkg;
+                reloadGrid(false);
+            }
+            case MOVE -> startMove(entry.pkg);
+            case UNINSTALL -> open(new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + entry.pkg)));
+            case APP_INFO -> open(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + entry.pkg)));
+        }
+    }
+
+    private void addMenuRow(LinearLayout rows, int titleRes, Runnable action) {
+        View row = getLayoutInflater().inflate(R.layout.item_input, rows, false);
+        row.findViewById(R.id.icon).setVisibility(View.GONE);
+        ((TextView) row.findViewById(R.id.title)).setText(titleRes);
+        row.findViewById(R.id.status).setVisibility(View.GONE);
+        row.findViewById(R.id.dot).setVisibility(View.GONE);
+        row.setOnClickListener(v -> {
+            menuChose = true;
+            dismissAppMenu();
+            action.run();
+        });
+        rows.addView(row);
+    }
+
+    private void dismissAppMenu() {
+        if (appMenu != null && appMenu.isShowing()) appMenu.dismiss();
+        appMenu = null;
+    }
+
+    private void startMove(String pkg) {
+        if (!pinList.contains(pkg)) return;
+        moving = true;
+        movingPkg = pkg;
+        moveBackup = pinList.snapshot();
+        lastPkg = pkg;
+        Toast.makeText(this, R.string.move_hint, Toast.LENGTH_LONG).show();
+        focusPackage(pkg);
+    }
+
+    private void endMove(boolean keep) {
+        if (!moving) return;
+        String pkg = movingPkg;
+        if (!keep && moveBackup != null) pinList.restore(moveBackup);
+        moving = false;
+        movingPkg = null;
+        moveBackup = null;
+        lastPkg = pkg == null ? "" : pkg;
+        reloadGrid(false);
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (!moving) return super.dispatchKeyEvent(event);
+        int code = event.getKeyCode();
+        if (!moveKey(code)) return super.dispatchKeyEvent(event);
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            if (code == KeyEvent.KEYCODE_DPAD_LEFT) {
+                if (pinList.move(movingPkg, -1, adapter.packages())) reloadGrid(false);
+            } else if (code == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                if (pinList.move(movingPkg, 1, adapter.packages())) reloadGrid(false);
+            }
+        } else if (event.getAction() == KeyEvent.ACTION_UP) {
+            if (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER) endMove(true);
+            else if (code == KeyEvent.KEYCODE_BACK) endMove(false);
+        }
+        return true;
+    }
+
+    private static boolean moveKey(int code) {
+        return code == KeyEvent.KEYCODE_DPAD_LEFT
+                || code == KeyEvent.KEYCODE_DPAD_RIGHT
+                || code == KeyEvent.KEYCODE_DPAD_UP
+                || code == KeyEvent.KEYCODE_DPAD_DOWN
+                || code == KeyEvent.KEYCODE_DPAD_CENTER
+                || code == KeyEvent.KEYCODE_ENTER
+                || code == KeyEvent.KEYCODE_BACK;
+    }
+
+    private Set<String> activeReplacements() {
+        long now = SystemClock.uptimeMillis();
+        replacing.entrySet().removeIf(e -> now - e.getValue() > REPLACE_WINDOW_MS);
+        return new HashSet<>(replacing.keySet());
+    }
+
+    private final BroadcastReceiver packageReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (intent == null) return;
+            String action = intent.getAction();
+            Uri data = intent.getData();
+            String pkg = data != null ? data.getSchemeSpecificPart() : null;
+            boolean update = intent.getBooleanExtra(Intent.EXTRA_REPLACING, false);
+            if (Intent.ACTION_PACKAGE_REMOVED.equals(action) && pkg != null) {
+                if (update) {
+                    replacing.put(pkg, SystemClock.uptimeMillis());
+                } else {
+                    replacing.remove(pkg);
+                    pinList.remove(pkg);
+                    if (moving && pkg.equals(movingPkg)) {
+                        moving = false;
+                        movingPkg = null;
+                        moveBackup = null;
+                        lastPkg = "";
+                    }
+                }
+            } else if (Intent.ACTION_PACKAGE_ADDED.equals(action) && pkg != null) {
+                replacing.remove(pkg);
+            }
+            reloadGrid(false);
+        }
+    };
+
+    private boolean packageReceiverRegistered;
+
+    private void registerPackageReceiver() {
+        if (packageReceiverRegistered) return;
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(Intent.ACTION_PACKAGE_ADDED);
+        filter.addAction(Intent.ACTION_PACKAGE_REMOVED);
+        filter.addAction(Intent.ACTION_PACKAGE_CHANGED);
+        filter.addDataScheme("package");
+        registerReceiver(packageReceiver, filter);
+        packageReceiverRegistered = true;
+    }
+
+    private void unregisterPackageReceiver() {
+        if (!packageReceiverRegistered) return;
+        unregisterReceiver(packageReceiver);
+        packageReceiverRegistered = false;
     }
 
     // ---- top bar ---------------------------------------------------------------------------------
