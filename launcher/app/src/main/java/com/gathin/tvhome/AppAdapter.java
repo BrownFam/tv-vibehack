@@ -30,6 +30,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+/**
+ * App tiles. The dock is the first {@link MainActivity#COLUMNS} slots.
+ * Order comes from {@link PinList} at runtime, not a fixed compiled list.
+ * Unpinned apps then follow the remaining dock_apps order, then label.
+ */
 public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
 
     interface TileListener {
@@ -79,17 +84,18 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         this.hidden = new HashSet<>(Arrays.asList(ctx.getResources().getStringArray(R.array.hidden_apps)));
     }
 
-    void reload() {
+    void reload(Set<String> keep) {
         PackageManager pm = ctx.getPackageManager();
         Intent probe = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
         List<ResolveInfo> found = pm.queryIntentActivities(probe, 0);
         List<Entry> fresh = new ArrayList<>();
         HashSet<String> installed = new HashSet<>();
+        if (keep != null) installed.addAll(keep);
         for (ResolveInfo ri : found) {
             if (ri.activityInfo == null) continue;
             String pkg = ri.activityInfo.packageName;
-            if (pkg.equals(ctx.getPackageName()) || hidden.contains(pkg)) continue;
             installed.add(pkg);
+            if (pkg.equals(ctx.getPackageName()) || hidden.contains(pkg)) continue;
             Drawable banner = ri.activityInfo.loadBanner(pm);
             if (banner == null) banner = ri.activityInfo.applicationInfo.loadBanner(pm);
             Drawable icon = ri.loadIcon(pm);

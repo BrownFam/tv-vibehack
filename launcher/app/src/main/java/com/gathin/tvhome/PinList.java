@@ -47,6 +47,10 @@ final class PinList {
         return packages.size();
     }
 
+    int indexOf(String pkg) {
+        return packages.indexOf(pkg);
+    }
+
     void pinToTop(String pkg) {
         packages = PinList.pinToTop(packages, pkg);
         seen.add(pkg);

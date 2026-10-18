@@ -22,4 +22,5 @@
     <string name="uninstall">Uninstall</string>
     <string name="app_info">App info</string>
     <string name="move_hint">Left or right to reorder, OK to finish, Back to cancel</string>
+    <string name="cant_open">Can\'t open %1$s</string>
 </resources>
