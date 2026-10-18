@@ -503,11 +503,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (moving && event.getAction() == KeyEvent.ACTION_DOWN) {
             int code = event.getKeyCode();
             if (code == KeyEvent.KEYCODE_DPAD_LEFT) {
-                if (pinList.move(movingPkg, -1)) reloadGrid(false);
+                if (pinList.move(movingPkg, -1, adapter.packages())) reloadGrid(false);
                 return true;
             }
             if (code == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                if (pinList.move(movingPkg, 1)) reloadGrid(false);
+                if (pinList.move(movingPkg, 1, adapter.packages())) reloadGrid(false);
                 return true;
             }
             if (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER) {

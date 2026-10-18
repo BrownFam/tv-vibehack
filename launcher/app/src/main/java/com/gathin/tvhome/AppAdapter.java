@@ -163,6 +163,12 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         return -1;
     }
 
+    Set<String> packages() {
+        HashSet<String> out = new HashSet<>();
+        for (Entry e : items) out.add(e.pkg);
+        return out;
+    }
+
     /** A vivid colour sampled from the app's banner (or icon), cached per entry. */
     int ambientColorAt(int position) {
         if (position < 0 || position >= items.size()) return 0xFF444444;

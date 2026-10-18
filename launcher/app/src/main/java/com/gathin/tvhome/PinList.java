@@ -63,8 +63,8 @@ final class PinList {
         persist();
     }
 
-    boolean move(String pkg, int delta) {
-        List<String> next = PinList.move(packages, pkg, delta);
+    boolean move(String pkg, int delta, Set<String> onScreen) {
+        List<String> next = PinList.move(packages, pkg, delta, onScreen);
         if (next.equals(packages)) return false;
         packages = next;
         persist();
@@ -131,14 +131,19 @@ final class PinList {
         return out;
     }
 
-    static List<String> move(List<String> pins, String pkg, int delta) {
+    static List<String> move(List<String> pins, String pkg, int delta, Set<String> onScreen) {
         ArrayList<String> out = new ArrayList<>(pins);
         int i = out.indexOf(pkg);
         if (i < 0) return out;
-        int j = i + delta;
-        if (j < 0 || j >= out.size()) return out;
-        out.remove(i);
-        out.add(j, pkg);
+        int dir = delta < 0 ? -1 : 1;
+        int j = i + dir;
+        while (j >= 0 && j < out.size()) {
+            if (onScreen == null || onScreen.contains(out.get(j))) {
+                Collections.swap(out, i, j);
+                return out;
+            }
+            j += dir;
+        }
         return out;
     }
 
