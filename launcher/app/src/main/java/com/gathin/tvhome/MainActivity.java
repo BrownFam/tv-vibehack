@@ -22,6 +22,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -46,7 +47,11 @@ import androidx.recyclerview.widget.RecyclerView;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * tvOS style home: black, a pinned dock row, an app grid, and one glass highlight that springs between tiles.
@@ -56,6 +61,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     /** Tiles per row and dock slots (res/values/config.xml, columns). Set in onCreate. */
     static int COLUMNS = 4;
     private static final long MINUTE_MS = 60_000L;
+    /** How long a package may be missing during an update before prune drops its pin. */
+    private static final long REPLACE_WINDOW_MS = 30_000L;
     private String liveTvPkg;
 
     private PinList pinList;
@@ -79,6 +86,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private String movingPkg;
     private List<String> moveBackup;
     private PopupWindow appMenu;
+    private boolean menuChose;
+    /** Packages in an in-progress update, mapped to when PACKAGE_REMOVED arrived. */
+    private final Map<String, Long> replacing = new HashMap<>();
     private float density;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -191,7 +201,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         updateWifiLabel();
         handler.postDelayed(minuteTick, MINUTE_MS);
 
-        // reload() rebinds holders in place. A still-focused card can now be a different package.
         grid.post(() -> {
             View focused = getCurrentFocus();
             if (focused != null && focused.getId() != R.id.card) return;

@@ -30,10 +30,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/**
- * App tiles. The first {@link MainActivity#COLUMNS} positions are the dock row.
- * Runtime order comes from {@link PinList}, then remaining dock_apps, then label.
- */
 public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
 
     interface TileListener {
@@ -72,7 +68,6 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
     private final TileListener listener;
     private final PinList pins;
     private final int dockSize;
-    /** Never shown as tiles (res/values/config.xml, hidden_apps). */
     private final Set<String> hidden;
     private final List<Entry> items = new ArrayList<>();
 

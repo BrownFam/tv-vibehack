@@ -11,9 +11,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-/**
- * Ordered pinned packages. {@code dock_apps} is only the first-run seed.
- */
 final class PinList {
 
     static final String PLEX = "com.plexapp.android";
@@ -40,6 +37,10 @@ final class PinList {
 
     boolean contains(String pkg) {
         return packages.contains(pkg);
+    }
+
+    int indexOf(String pkg) {
+        return packages.indexOf(pkg);
     }
 
     void pinToTop(String pkg) {
@@ -150,13 +151,14 @@ final class PinList {
     }
 
     private List<String> load() {
-        String raw = prefs.getString(KEY_PINS, null);
-        if (raw == null || raw.isEmpty()) return seed(dockApps);
-        ArrayList<String> out = new ArrayList<>();
-        for (String s : raw.split("\n", -1)) {
-            if (!s.isEmpty()) out.add(s);
+        String raw = prefs.getString(KEY_PINS, "");
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        if (raw != null) {
+            for (String s : raw.split("\n", -1)) {
+                if (!s.isEmpty()) out.add(s);
+            }
         }
-        return out;
+        return new ArrayList<>(out);
     }
 
     private void persist() {
