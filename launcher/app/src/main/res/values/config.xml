@@ -5,7 +5,7 @@
 -->
 <resources>
 
-    <!-- First-run pin seed. After that, PinList owns order. Missing apps are skipped. -->
+    <!-- First-run pin seed, in this order. Missing apps are skipped. -->
     <string-array name="dock_apps">
         <item>com.plexapp.android</item>
         <item>com.google.android.youtube.tv</item>

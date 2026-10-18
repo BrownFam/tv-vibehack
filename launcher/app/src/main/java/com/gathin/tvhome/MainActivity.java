@@ -61,7 +61,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     /** Tiles per row and dock slots (res/values/config.xml, columns). Set in onCreate. */
     static int COLUMNS = 4;
     private static final long MINUTE_MS = 60_000L;
-    /** How long a package may be missing during an update before prune drops its pin. */
     private static final long REPLACE_WINDOW_MS = 30_000L;
     private String liveTvPkg;
 
@@ -87,7 +86,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private List<String> moveBackup;
     private PopupWindow appMenu;
     private boolean menuChose;
-    /** Packages in an in-progress update, mapped to when PACKAGE_REMOVED arrived. */
     private final Map<String, Long> replacing = new HashMap<>();
     private float density;
 
@@ -557,7 +555,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         return true;
     }
 
-    // Up and Down are included so focus cannot leave the tile while Left and Right reorder it.
     private static boolean moveKey(int code) {
         return code == KeyEvent.KEYCODE_DPAD_LEFT
                 || code == KeyEvent.KEYCODE_DPAD_RIGHT

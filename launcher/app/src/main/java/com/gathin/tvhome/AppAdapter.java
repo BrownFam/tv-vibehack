@@ -30,11 +30,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/**
- * App tiles. The dock is the first {@link MainActivity#COLUMNS} slots.
- * Order comes from {@link PinList} at runtime, not a fixed compiled list.
- * Unpinned apps then follow the remaining dock_apps order, then label.
- */
 public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
 
     interface TileListener {
