@@ -98,7 +98,7 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
             boolean system = (flags & (ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0;
             fresh.add(new Entry(label, new ComponentName(pkg, ri.activityInfo.name), banner, icon, system));
         }
-        pins.pruneMissing(installed);
+        pins.observeInstalled(installed);
         pins.sort(fresh);
         items.clear();
         items.addAll(fresh);

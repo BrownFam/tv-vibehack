@@ -7,6 +7,7 @@ import android.text.TextUtils;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -18,15 +19,18 @@ final class PinList {
     private static final String PREFS = "tvhome_pins";
     private static final String KEY_PINS = "pins";
     private static final String KEY_SEEDED = "seeded";
+    private static final String KEY_SEEN = "seen";
 
     private final SharedPreferences prefs;
     private final List<String> dockApps;
     private List<String> packages;
+    private final Set<String> seen;
 
     PinList(Context ctx) {
         prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         dockApps = Collections.unmodifiableList(
                 Arrays.asList(ctx.getResources().getStringArray(R.array.dock_apps)));
+        seen = new LinkedHashSet<>(prefs.getStringSet(KEY_SEEN, Collections.emptySet()));
         seedIfNeeded();
         packages = load();
     }
@@ -39,12 +43,13 @@ final class PinList {
         return packages.contains(pkg);
     }
 
-    int indexOf(String pkg) {
-        return packages.indexOf(pkg);
+    int size() {
+        return packages.size();
     }
 
     void pinToTop(String pkg) {
         packages = PinList.pinToTop(packages, pkg);
+        seen.add(pkg);
         persist();
     }
 
@@ -66,9 +71,10 @@ final class PinList {
         return true;
     }
 
-    void pruneMissing(Set<String> installed) {
-        List<String> next = PinList.prune(packages, installed);
-        if (next.equals(packages)) return;
+    void observeInstalled(Set<String> installed) {
+        boolean seenChanged = seen.addAll(installed);
+        List<String> next = PinList.pruneGone(packages, seen, installed);
+        if (!seenChanged && next.equals(packages)) return;
         packages = next;
         persist();
     }
@@ -136,10 +142,11 @@ final class PinList {
         return out;
     }
 
-    static List<String> prune(List<String> pins, Set<String> installed) {
+    static List<String> pruneGone(List<String> pins, Set<String> seen, Set<String> installed) {
         ArrayList<String> out = new ArrayList<>();
         for (String p : pins) {
-            if (installed.contains(p)) out.add(p);
+            if (seen.contains(p) && !installed.contains(p)) continue;
+            out.add(p);
         }
         return out;
     }
@@ -164,6 +171,7 @@ final class PinList {
     private void persist() {
         prefs.edit()
                 .putString(KEY_PINS, TextUtils.join("\n", packages))
+                .putStringSet(KEY_SEEN, new HashSet<>(seen))
                 .putBoolean(KEY_SEEDED, true)
                 .apply();
     }

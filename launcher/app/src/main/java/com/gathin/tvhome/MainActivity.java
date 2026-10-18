@@ -431,7 +431,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 pinList.unpin(entry.pkg);
                 reloadGrid(false);
             });
-            addMenuRow(rows, getString(R.string.move), () -> startMove(entry.pkg));
+            if (pinList.size() >= 2) {
+                addMenuRow(rows, getString(R.string.move), () -> startMove(entry.pkg));
+            }
         } else {
             addMenuRow(rows, getString(R.string.pin_to_top), () -> {
                 pinList.pinToTop(entry.pkg);
